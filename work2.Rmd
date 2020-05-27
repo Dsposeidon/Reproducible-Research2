@@ -1,0 +1,239 @@
+---
+title: "RRD 2"
+author: "Gabre Hughes"
+date: "5/26/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+Data Processing
+##Importing Libraries
+```{r}
+library("data.table")
+library(ggplot2)
+```
+
+The path 
+```{r}
+getwd()
+
+path <-getwd()
+```
+
+
+Getting data 
+```{r}
+download.file(url = "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+              , destfile = paste(path, "dataFiles.zip", sep = "/"))
+unzip(zipfile = "dataFiles.zip")
+
+stormDF <- data.table::fread(input = "repdata_data_StormData.csv")
+
+```
+
+
+Data Loading
+
+```{r}
+head(stormDF)
+```
+
+
+
+Checking Data 
+```{r}
+stormDT <- as.data.table(stormDF)
+```
+
+
+Finding columns to remove
+```{r}
+colnames(stormDT)
+
+```
+
+
+Removing columns
+
+```{r}
+cols2Remove <- colnames(stormDT[, !c("EVTYPE"
+  , "FATALITIES"
+  , "INJURIES"
+  , "PROPDMG"
+  , "PROPDMGEXP"
+  , "CROPDMG"
+  , "CROPDMGEXP")])
+```
+
+
+
+```{r}
+stormDT[, c(cols2Remove) := NULL]
+```
+
+Only use data where fatalities or injuries occurred.
+
+```{r}
+stormDT <- stormDT[(EVTYPE != "?" & 
+             (INJURIES > 0 | FATALITIES > 0 | PROPDMG > 0 | CROPDMG > 0)), c("EVTYPE"
+                                                                            , "FATALITIES"
+                                                                            , "INJURIES"
+                                                                            , "PROPDMG"
+                                                                            , "PROPDMGEXP"
+                                                                            , "CROPDMG"
+                                                                            , "CROPDMGEXP") ]
+```
+
+Converting Exponent Columns into Actual Exponents instead of (-,+, H, K, etc)
+
+```{r}
+cols <- c("PROPDMGEXP", "CROPDMGEXP")
+stormDT[,  (cols) := c(lapply(.SD, toupper)), .SDcols = cols]
+```
+
+Change all damage exponents to uppercase
+```{r}
+propDmgKey <-  c("\"\"" = 10^0,
+                 "-" = 10^0, 
+                 "+" = 10^0,
+                 "0" = 10^0,
+                 "1" = 10^1,
+                 "2" = 10^2,
+                 "3" = 10^3,
+                 "4" = 10^4,
+                 "5" = 10^5,
+                 "6" = 10^6,
+                 "7" = 10^7,
+                 "8" = 10^8,
+                 "9" = 10^9,
+                 "H" = 10^2,
+                 "K" = 10^3,
+                 "M" = 10^6,
+                 "B" = 10^9)
+```
+
+
+Map property damage alphanumeric exponents to numeric values.
+
+```{r}
+cropDmgKey <-  c("\"\"" = 10^0,
+                "?" = 10^0, 
+                "0" = 10^0,
+                "K" = 10^3,
+                "M" = 10^6,
+                "B" = 10^9)
+```
+
+Map crop damage alphanumeric exponents to numeric values
+
+```{r}
+stormDT[, PROPDMGEXP := propDmgKey[as.character(stormDT[,PROPDMGEXP])]]
+stormDT[is.na(PROPDMGEXP), PROPDMGEXP := 10^0 ]
+stormDT[, CROPDMGEXP := cropDmgKey[as.character(stormDT[,CROPDMGEXP])] ]
+stormDT[is.na(CROPDMGEXP), CROPDMGEXP := 10^0 ]
+
+```
+
+Economic Cost Columns
+
+```{r}
+stormDT <- stormDT[, .(EVTYPE, FATALITIES, INJURIES, PROPDMG, PROPDMGEXP, propCost = PROPDMG * PROPDMGEXP, CROPDMG, CROPDMGEXP, cropCost = CROPDMG * CROPDMGEXP)]
+```
+
+Total Property and Crop Cost
+
+```{r}
+totalCostDT <- stormDT[, .(propCost = sum(propCost), cropCost = sum(cropCost), Total_Cost = sum(propCost) + sum(cropCost)), by = .(EVTYPE)]
+totalCostDT <- totalCostDT[order(-Total_Cost), ]
+totalCostDT <- totalCostDT[1:10, ]
+head(totalCostDT, 5)
+
+```
+Total Fatalities and Injuries
+
+```{r}
+totalInjuriesDT <- stormDT[, .(FATALITIES = sum(FATALITIES), INJURIES = sum(INJURIES), totals = sum(FATALITIES) + sum(INJURIES)), by = .(EVTYPE)]
+totalInjuriesDT <- totalInjuriesDT[order(-FATALITIES), ]
+totalInjuriesDT <- totalInjuriesDT[1:10, ]
+head(totalInjuriesDT, 5)
+```
+
+Most Harmful to Population Health
+
+```{r}
+bad_stuff <- melt(totalInjuriesDT, id.vars="EVTYPE", variable.name = "bad_thing")
+head(bad_stuff, 5)
+```
+
+
+
+```{r}
+healthChart <- ggplot(bad_stuff, aes(x=reorder(EVTYPE, -value), y=value))
+healthChart = healthChart + geom_bar(stat="identity", aes(fill=bad_thing), position="dodge")
+healthChart = healthChart + theme(axis.text.x = element_text(angle=45, hjust=1))
+healthChart = healthChart + theme(axis.text.x = element_text(angle=45, hjust=1))
+healthChart = healthChart + ylab("Frequency Count") 
+healthChart = healthChart + ggtitle("Top 10 US Killers") + theme(plot.title = element_text(hjust = 0.5))
+healthChart = healthChart + xlab("Event Type") 
+healthChart = healthChart + xlab("Event Type") 
+healthChart
+```
+
+
+
+```{r}
+png("plot1.png", width=480, height=480)
+healthChart <- ggplot(bad_stuff, aes(x=reorder(EVTYPE, -value), y=value))
+healthChart = healthChart + geom_bar(stat="identity", aes(fill=bad_thing), position="dodge")
+healthChart = healthChart + theme(axis.text.x = element_text(angle=45, hjust=1))
+healthChart = healthChart + theme(axis.text.x = element_text(angle=45, hjust=1))
+healthChart = healthChart + ylab("Frequency Count") 
+healthChart = healthChart + ggtitle("Top 10 US Killers") + theme(plot.title = element_text(hjust = 0.5))
+healthChart = healthChart + xlab("Event Type") 
+healthChart = healthChart + xlab("Event Type") 
+healthChart
+dev.off()
+```
+
+
+
+
+
+
+
+
+
+
+Economic Consequences
+
+```{r}
+econ_consequences <- melt(totalCostDT, id.vars="EVTYPE", variable.name = "Damage_Type")
+head(econ_consequences, 5)
+```
+
+
+```{r}
+econChart <- ggplot(econ_consequences, aes(x=reorder(EVTYPE, -value), y=value))
+econChart = econChart + geom_bar(stat="identity", aes(fill=Damage_Type), position="dodge")
+econChart = econChart + ylab("Cost (dollars)") 
+econChart = econChart + theme(axis.text.x = element_text(angle=45, hjust=1))
+econChart = econChart + ggtitle("Top 10 US Storm Events causing Economic Consequences") + theme(plot.title = element_text(hjust = 0.5))
+econChart
+```
+
+
+
+```{r}
+png("plot2.png", width=480, height=480)
+econChart <- ggplot(econ_consequences, aes(x=reorder(EVTYPE, -value), y=value))
+econChart = econChart + geom_bar(stat="identity", aes(fill=Damage_Type), position="dodge")
+econChart = econChart + ylab("Cost (dollars)") 
+econChart = econChart + theme(axis.text.x = element_text(angle=45, hjust=1))
+econChart = econChart + ggtitle("Top 10 US Storm Events causing Economic Consequences") + theme(plot.title = element_text(hjust = 0.5))
+econChart
+dev.off()
+```
+
+
+
